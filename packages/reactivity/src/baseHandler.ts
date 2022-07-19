@@ -1,3 +1,5 @@
+import { track } from "./effect";
+
 export const enum ReactiveFlgs {
   IS_REACTIVE = '_v_isReactive'
 }
@@ -7,6 +9,7 @@ export const mutableHandlers = {
       return true 
     }
     console.log(receiver)
+    track(target,'get',key);
     //去代理对象上取值 就走get
     //这里可以监控到用户取值了
     return Reflect.get(target,key,receiver)
@@ -17,3 +20,7 @@ export const mutableHandlers = {
     return Reflect.set(target,key,value,receiver)
   }
 }
+
+// 对象 某个属性 ->多个effect
+// WeakMap = {对象:Map:{name:Set}}
+// map {对象:name:[]}
