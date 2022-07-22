@@ -3,7 +3,7 @@ export let activeEffect = undefined;
 function cleanupEffect(effect) {
   const { deps } = effect; //deps里面装的是name对应的effect
   for(let i = 0; i < deps.length; i++) {
-    deps[i].delete(effect);
+    deps[i].delete(effect); //接触effect，重新依赖收集
   }
   effect.deps.length = 0;
 }
@@ -13,9 +13,7 @@ class ReactiveEffect {
   public parent = null; 
   public deps = [];
   public active = true;//这个effect默认是激活状态
-  constructor(public fn) {// 用户传递的参数也会当this上， this.fn
- 
-  }
+  constructor(public fn, public scheduler) {}// 用户传递的参数也会当this上， this.fn
   run() { // run就是执行effect
     if(!this.active) this.fn() //这里表示如果是非激活，只需要执行函数，不需要进行依赖收集
 
@@ -23,7 +21,6 @@ class ReactiveEffect {
     try {
       this.parent = activeEffect;
       activeEffect = this;
-
       // 这里我们需要在执行用户函数之前将之前收集的内容清空 activeEffect.deps = [(set),(set)]
       cleanupEffect(this) 
       return this.fn() //当稍后调用取值操作的时候 就可以获取到这个全局的activeEffect了 
@@ -32,13 +29,23 @@ class ReactiveEffect {
       this.parent = null;
     }
   }
+  stop() {
+    if(this.active) {
+      this.active = false;
+      cleanupEffect(this); // 停直effect收集
+    }
+  }
+
 }
 
 
-export function effect(fn) {
+export function effect(fn,options:any={}) { 
   // 这里fn可以根据状态变化 重新执行， effect 可以嵌套着写
-  const _effect = new ReactiveEffect(fn)
-  _effect.run();
+  const _effect = new ReactiveEffect(fn,options.scheduler)
+  _effect.run() 
+  const runner = _effect.run.bind(_effect)
+  runner.effect = _effect // 将effect挂载到runner函数上
+  return runner
 }
 
 //一个effect 对应多个属性，一个属性对应多个effect
@@ -71,14 +78,23 @@ export function track(target,type,key) {
 export function trigger(target,type,key,value,oldValue) { 
   const depsMap = targetMap.get(target)
   if(!depsMap) return //触发的值不在模板中使用
-
-  const effects = depsMap.get(key); //找到了属性对应的effect
-  effects && effects.forEach(effect=>{
-    // 我们在执行effect的时候 又要执行自己，那我们需要屏蔽掉，不要无线调用
-    if(effect !== activeEffect) effect.run();
-
-  }) 
+  let effects = depsMap.get(key); //找到了属性对应的effect
+  // 永远在执行之前，先拷贝一份来执行，不要关联引用
+  if(effects) {
+    effects = new Set(effects); //TODO 为啥这里浅拷贝了，就不会被影响到
+    effects && effects.forEach(effect=>{
+      // 我们在执行effect的时候 又要执行自己，那我们需要屏蔽掉，不要无线调用
+      if(effect !== activeEffect) {
+        if(effect.scheduler) {
+          effect.scheduler(); //如果用户传入了调度函数，则使用用户得
+        } else {
+          effect.run(); //否则默认刷新视图
+        }
+      }
+    }) 
+  }
 }
+
 
 // 1) 我们先搞一个响应式对象 new Proxy
 // 2) effect 默认数据变化要能更新，我们先将正在执行的effect作为全局变量，渲染（取值），我们在get方法中进行依赖收集
