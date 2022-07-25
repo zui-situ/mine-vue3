@@ -7,6 +7,11 @@ const reactiveMap = new WeakMap(); //key只能是对象
 
 // 1）实现同一个对象代理多次，返回同一个代理
 // 2）代理对象被再次代理 可以直接返回
+
+export function isReactive(value) {
+  return !!(value && value[ReactiveFlgs.IS_REACTIVE])
+}
+
 export function reactive(target) {
   if(!isObject(target)) {
     return 
